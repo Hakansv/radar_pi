@@ -998,6 +998,7 @@ void radar_pi::TimedControlUpdate() {
                               m_radar[r]->m_statistics.missing_spokes);
       }
     }
+    if (JsonAIS != wxEmptyString) t = JsonAIS;  // Has Debug ARPA AIS debug info
     m_pMessageBox->SetStatisticsInfo(t);
     if (t.length() > 0) {
       t.Replace(wxT("\n"), wxT(" "));
@@ -1629,6 +1630,8 @@ void radar_pi::SetPluginMessage(wxString &message_id, wxString &message_body) {
           }
         }
       }
+    } else {  // has debug - No ARPA
+      JsonAIS = wxEmptyString;
     }
     // Delete > 3 min old AIS items or at once if no active ARPA
     if (m_ais_in_arpa_zone.size() > 0) {
@@ -1636,6 +1639,7 @@ void radar_pi::SetPluginMessage(wxString &message_id, wxString &message_body) {
         if (m_ais_in_arpa_zone[i].ais_mmsi > 0 && (time(0) - m_ais_in_arpa_zone[i].ais_time_upd > 3 * 60 || !arpa_is_present)) {
           m_ais_in_arpa_zone.erase(m_ais_in_arpa_zone.begin() + i);
           arpa_max_range = BASE_ARPA_DIST; // Renew AIS search area
+          JsonAIS = wxEmptyString;  // has debug
         }
       }
     }
@@ -1644,6 +1648,15 @@ void radar_pi::SetPluginMessage(wxString &message_id, wxString &message_body) {
 
 bool radar_pi::FindAIS_at_arpaPos(const GeoPosition &pos, const double &arpa_dist) {
   arpa_max_range = MAX(arpa_dist + 200, arpa_max_range);  // For AIS search area
+  // has debug >>>
+  wxString Msg = wxEmptyString;
+  if ((time(0) - AisMsgTim) > 4 || JsonAIS == wxEmptyString) {
+    Msg << _T("Max ARPA Range: ") << arpa_max_range << "\n";
+    Msg << _T("AIS in list: ") << m_ais_in_arpa_zone.size();
+    JsonAIS = Msg;
+    AisMsgTim = time(0);
+  }
+  // <<<
   if (m_ais_in_arpa_zone.size() < 1) return false;
   bool hit = false;
   // Default 50 >> look 100 meters around + 4% of distance to target
@@ -1658,6 +1671,14 @@ bool radar_pi::FindAIS_at_arpaPos(const GeoPosition &pos, const double &arpa_dis
           pos.lon + (offset * 1.75) > m_ais_in_arpa_zone[i].ais_lon && 
           pos.lon - (offset * 1.75) < m_ais_in_arpa_zone[i].ais_lon) {
         hit = true;
+        Msg = "";
+        Msg << _T("ARPA at:\n")
+           << _T("Lat: ") << pos.lat << _T("\n")
+           << _T("Lon: ") << pos.lon << _T("\n");
+        Msg << _T("Covered by: ") << m_ais_in_arpa_zone[i].ais_mmsi << "\n";
+        Msg << _T("Distance: ") << arpa_dist << _T(" m");
+        JsonAIS = Msg;
+        AisMsgTim = time(0);
         break;
       }
     }

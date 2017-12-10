@@ -477,6 +477,9 @@ class radar_pi : public opencpn_plugin_114, public wxEvtHandler {
   bool FindAIS_at_arpaPos(const GeoPosition &pos, const double &arpa_dist);
 #define BASE_ARPA_DIST (750.)
   double arpa_max_range = BASE_ARPA_DIST;  //  Temporary distance(m) fron own ship to collect AIS targets.
+  wxString JsonAIS;      // Has Debug for Json AIS message
+  time_t AisMsgTim = 0;  // has debug
+
   
  private:
   void RadarSendState(void);
