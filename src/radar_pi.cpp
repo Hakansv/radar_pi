@@ -1621,9 +1621,11 @@ void radar_pi::SetPluginMessage(wxString &message_id, wxString &message_body) {
 bool radar_pi::FindAIS_at_arpaPos(const GeoPosition &pos, const double &arpa_dist) {
   arpa_max_range = MAX(arpa_dist + 200, arpa_max_range);  // For AIS search area
   // has debug >>>
-  wxString Msg = wxEmptyString;
+  wxString Msg = _T("We've active ARPA targets\n");
   if ((time(0) - AisMsgTim) > 4 || JsonAIS == wxEmptyString) {
-    Msg << _T("Max ARPA Range: ") << arpa_max_range << "\n";
+    double max = arpa_max_range > 1852. ? arpa_max_range / 1852.: arpa_max_range;
+
+    Msg << _T("Max ARPA Range: ") << max << (arpa_max_range > 1852. ? _T(" Nm") : _T(" m")) << "\n";
     Msg << _T("AIS in list: ") << m_ais_in_arpa_zone.size();
     JsonAIS = Msg;
     AisMsgTim = time(0);
@@ -1635,6 +1637,7 @@ bool radar_pi::FindAIS_at_arpaPos(const GeoPosition &pos, const double &arpa_dis
   double offset = (double)m_settings.AISatARPAoffset;
   double dist2target = (4.0 / 100) * arpa_dist;
   offset += dist2target;
+  wxString O_set = wxString::Format(_T("Offset %0.0f m"), offset);
   offset = offset / 1852. / 60.;
   for (size_t i = 0; i < m_ais_in_arpa_zone.size(); i++) {
     if (m_ais_in_arpa_zone[i].ais_mmsi != 0) {  // Avtive post
@@ -1643,14 +1646,17 @@ bool radar_pi::FindAIS_at_arpaPos(const GeoPosition &pos, const double &arpa_dis
           pos.lon + (offset * 1.75) > m_ais_in_arpa_zone[i].ais_lon && 
           pos.lon - (offset * 1.75) < m_ais_in_arpa_zone[i].ais_lon) {
         hit = true;
-        Msg = "";
+        // Has debug >>>
+        Msg = wxEmptyString;
         Msg << _T("ARPA at:\n")
            << _T("Lat: ") << pos.lat << _T("\n")
            << _T("Lon: ") << pos.lon << _T("\n");
         Msg << _T("Covered by: ") << m_ais_in_arpa_zone[i].ais_mmsi << "\n";
         Msg << _T("Distance: ") << arpa_dist << _T(" m");
+        Msg << "\n" << O_set;
         JsonAIS = Msg;
         AisMsgTim = time(0);
+        // Debug <<<
         break;
       }
     }
