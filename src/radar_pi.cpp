@@ -29,7 +29,6 @@
  ***************************************************************************
  */
 
-#include "radar_pi.h"
 #include "GuardZone.h"
 #include "GuardZoneBogey.h"
 #include "Kalman.h"
@@ -39,6 +38,7 @@
 #include "SelectDialog.h"
 #include "icons.h"
 #include "nmea0183/nmea0183.h"
+#include "radar_pi.h"
 
 PLUGIN_BEGIN_NAMESPACE
 
@@ -388,10 +388,10 @@ void radar_pi::SetDefaults(void) {
 }
 
 bool radar_pi::IsRadarSelectionComplete(bool force) {
-    RadarType oldRadarType[RADARS];
+  RadarType oldRadarType[RADARS];
   bool ret = false;
   bool any = false;
-    size_t r;
+  size_t r;
 
   if (!force) {
     for (r = 0; r < M_SETTINGS.radar_count; r++) {
@@ -406,41 +406,40 @@ bool radar_pi::IsRadarSelectionComplete(bool force) {
 
   LOG_DIALOG(wxT("radar_pi: IsRadarSelectionComplete not yet so show selection dialog"));
 
-    for (r = 0; r < RADARS; r++) {
-        if (m_radar[r]) {
-          oldRadarType[r] = m_radar[r]->m_radar_type;
-        } else {
-            oldRadarType[r] = RT_MAX;
-        }
+  for (r = 0; r < RADARS; r++) {
+    if (m_radar[r]) {
+      oldRadarType[r] = m_radar[r]->m_radar_type;
+    } else {
+      oldRadarType[r] = RT_MAX;
     }
-    
+  }
+
   m_initialized = false;
   SelectDialog dlg(m_parent_window, this);
   if (dlg.ShowModal() == wxID_OK) {
-
-      m_settings.radar_count = 0;
-      r = 0;
-      for (size_t i = 0; i < RT_MAX; i++) {
-          if (dlg.m_selected[i]->GetValue()) {
-              if (!m_radar[r]) {
-                  m_settings.window_pos[r] = wxPoint(100 + 512 * r, 100);
-                  m_settings.control_pos[r] = wxDefaultPosition;
-                  m_radar[r] = new RadarInfo(this, r);
-              }
-              m_radar[r]->m_radar_type = (RadarType) i;
-              r++;
-              m_settings.radar_count = r;
-              ret = true;
-          }
-      }
-    SaveConfig();
-      
-    for (r = 0; r < M_SETTINGS.radar_count; r++) {
-      if (m_radar[r] && m_radar[r]->m_radar_type != oldRadarType[r]) {
-          m_radar[r]->Shutdown();
-          delete m_radar[r];
+    m_settings.radar_count = 0;
+    r = 0;
+    for (size_t i = 0; i < RT_MAX; i++) {
+      if (dlg.m_selected[i]->GetValue()) {
+        if (!m_radar[r]) {
+          m_settings.window_pos[r] = wxPoint(100 + 512 * r, 100);
+          m_settings.control_pos[r] = wxDefaultPosition;
           m_radar[r] = new RadarInfo(this, r);
         }
+        m_radar[r]->m_radar_type = (RadarType)i;
+        r++;
+        m_settings.radar_count = r;
+        ret = true;
+      }
+    }
+    SaveConfig();
+
+    for (r = 0; r < M_SETTINGS.radar_count; r++) {
+      if (m_radar[r] && m_radar[r]->m_radar_type != oldRadarType[r]) {
+        m_radar[r]->Shutdown();
+        delete m_radar[r];
+        m_radar[r] = new RadarInfo(this, r);
+      }
     }
 
     LoadConfig();
@@ -712,25 +711,6 @@ void radar_pi::PassHeadingToOpenCPN() {
   PushNMEABuffer(nmea);
 }
 
-wxString radar_pi::GetGuardZoneText(RadarInfo *ri) {
-  wxString text = ri->GetTimedIdleText();
-
-  for (int z = 0; z < GUARD_ZONES; z++) {
-    int bogeys = ri->m_guard_zone[z]->GetBogeyCount();
-    if (bogeys > 0 || (m_guard_bogey_confirmed && bogeys == 0)) {
-      if (text.length() > 0) {
-        text << wxT("\n");
-      }
-      text << _("Zone") << wxT(" ") << z + 1 << wxT(": ") << bogeys;
-      if (m_guard_bogey_confirmed) {
-        text << wxT(" ") << _("(Confirmed)");
-      }
-    }
-  }
-
-  return text;
-}
-
 /**
  * Check any guard zones
  *
@@ -753,7 +733,6 @@ void radar_pi::CheckGuardZoneBogeys(void) {
         if (bogeys > m_settings.guard_zone_threshold) {
           bogeys_found = true;
           bogeys_found_this_radar = true;
-          m_radar[r]->m_timed_idle = 0;  // reset timed idle to off
         }
         text << _(" Zone") << wxT(" ") << z + 1 << wxT(": ");
         if (bogeys > m_settings.guard_zone_threshold) {
@@ -908,8 +887,8 @@ void radar_pi::ScheduleWindowRefresh() {
   TimedControlUpdate();  // Update the controls. Method is self-limiting if called too often.
 
   for (size_t r = 0; r < M_SETTINGS.radar_count; r++) {
-    drawTime += m_radar[r]->GetDrawTime();
     m_radar[r]->RefreshDisplay();
+    drawTime += m_radar[r]->GetDrawTime();
   }
 
   int refreshrate = m_settings.refreshrate.GetValue();
@@ -1073,21 +1052,14 @@ void radar_pi::UpdateAllControlStates(bool all) {
 }
 
 void radar_pi::UpdateState(void) {
-  RadarState state = RADAR_OFF;
-
-  for (size_t r = 0; r < M_SETTINGS.radar_count; r++) {
-    state = wxMax(state, (RadarState)m_radar[r]->m_state.GetValue());
-  }
-  if (state == RADAR_OFF) {
-    m_toolbar_button = TB_SEARCHING;
-  } else if (m_settings.show == false) {
+  if (m_settings.show == false) {
     m_toolbar_button = TB_HIDDEN;
-  } else if (state == RADAR_TRANSMIT) {
-    m_toolbar_button = TB_ACTIVE;
-  } else if (state == RADAR_TIMED_IDLE) {
-    m_toolbar_button = TB_SEEN;
   } else {
-    m_toolbar_button = TB_STANDBY;
+    RadarState state = RADAR_OFF;
+    for (size_t r = 0; r < M_SETTINGS.radar_count; r++) {
+      state = wxMax(state, (RadarState)m_radar[r]->m_state.GetValue());
+    }
+    m_toolbar_button = g_toolbarIconColor[state];
   }
   CacheSetToolbarToolBitmaps();
 
@@ -1684,83 +1656,6 @@ bool radar_pi::FindAIS_at_arpaPos(const GeoPosition &pos, const double &arpa_dis
     }
   }
   return hit;
-}
-
-bool radar_pi::SetControlValue(int radar, ControlType controlType, RadarControlItem &item) {  // sends the command to the radar
-  LOG_TRANSMIT(wxT("radar_pi: %s set %s value=%d state=%d"), m_radar[radar]->m_name.c_str(), ControlTypeNames[controlType].c_str(),
-               item.GetValue(), item.GetState());
-  switch (controlType) {
-    case CT_TRANSPARENCY: {
-      m_settings.overlay_transparency = item;
-      UpdateAllControlStates(true);
-      return true;
-    }
-    case CT_TIMED_IDLE: {
-      m_radar[radar]->m_timed_idle = item;
-      m_radar[radar]->m_idle_standby = 0;
-      m_radar[radar]->m_idle_transmit = 0;
-      if (m_radar[radar]->m_state.GetValue() == RADAR_TRANSMIT) {
-        m_radar[radar]->m_idle_standby = time(0) + 10;
-      } else {
-        m_radar[radar]->m_idle_transmit = time(0) + 10;
-      }
-      UpdateAllControlStates(true);
-      return true;
-    }
-    case CT_TIMED_RUN: {
-      m_radar[radar]->m_timed_run = item;
-      UpdateAllControlStates(true);
-      return true;
-    }
-    case CT_REFRESHRATE: {
-      m_settings.refreshrate = item;
-      UpdateAllControlStates(true);
-      return true;
-    }
-    case CT_TARGET_TRAILS: {
-      m_radar[radar]->m_target_trails = item;
-      m_radar[radar]->ComputeColourMap();
-      m_radar[radar]->ComputeTargetTrails();
-      return true;
-    }
-    case CT_TRAILS_MOTION: {
-      m_radar[radar]->m_trails_motion = item;
-      m_radar[radar]->ComputeColourMap();
-      m_radar[radar]->ComputeTargetTrails();
-      return true;
-    }
-    case CT_MAIN_BANG_SIZE: {
-      m_radar[radar]->m_main_bang_size = item;
-      return true;
-    }
-
-    case CT_ANTENNA_FORWARD: {
-      m_radar[radar]->m_antenna_forward = item;
-      return true;
-    }
-
-    case CT_ANTENNA_STARBOARD: {
-      m_radar[radar]->m_antenna_starboard = item;
-      return true;
-    }
-
-    case CT_ORIENTATION: {
-      m_radar[radar]->m_orientation = item;
-    }
-
-    case CT_OVERLAY: {
-      m_radar[radar]->m_overlay = item;
-    }
-
-    default: {
-      if (m_radar[radar]->SetControlValue(controlType, item)) {
-        return true;
-      }
-    }
-  }
-  wxLogError(wxT("radar_pi: %s unhandled control setting for control %s"), m_radar[radar]->m_name.c_str(),
-             ControlTypeNames[controlType].c_str());
-  return false;
 }
 
 //*****************************************************************************************************

@@ -118,12 +118,13 @@ class RadarInfo {
   RadarControlItem m_target_trails;
   RadarControlItem m_trails_motion;
   RadarControlItem m_target_on_ppi;
-  RadarControlItem m_warmup;
+  RadarControlItem m_next_state_change;
   RadarControlItem m_timed_idle;  // CT_TIMED_IDLE
   RadarControlItem m_timed_run;   // CT_TIMED_RUN
 
   bool m_showManualValueInAuto;  // Does radar adjust manual value in auto mode? True for Garmin, False for others
-
+  bool m_timed_idle_hardware;    // Does radar handle timed idle itself?
+  
   /* Per radar objects */
 
   RadarControl *m_control;
@@ -203,6 +204,7 @@ class RadarInfo {
   void ComputeColourMap();
   void ComputeTargetTrails();
   void CheckTimedTransmit();
+  void SetTimedNextStateTimer(int ms);
   wxString GetRangeText();
   wxString GetDisplayRangeStr(int meters, bool unit);
   int GetDisplayRange() { return m_range.GetValue(); };
@@ -243,6 +245,7 @@ class RadarInfo {
   wxString GetCanvasTextBottomLeft();
   wxString GetCanvasTextCenter();
   wxString GetTimedIdleText();
+  wxString GetRadarStateText();
 
   GeoPosition m_mouse_pos;
   double m_mouse_ebl[ORIENTATION_NUMBER];
