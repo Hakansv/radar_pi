@@ -208,6 +208,7 @@ int radar_pi::Init(void) {
   m_heading_source = HEADING_NONE;
   m_radar_heading = nanl("");
   m_vp_rotation = 0.;
+  m_arpa_max_range = BASE_ARPA_DIST;
 
   // Set default settings before we load config. Prevents random behavior on uninitalized behavior.
   // For instance, LOG_XXX messages before config is loaded.
@@ -1576,7 +1577,7 @@ void radar_pi::SetPluginMessage(wxString &message_id, wxString &message_body) {
             double f_AISLon = wxAtof(message.Get(_T("lon"), defaultValue).AsString());
               
             // Rectangle around own ship to look for AIS targets.
-            double d_side = arpa_max_range / 1852.0 / 60.0;
+            double d_side = m_arpa_max_range / 1852.0 / 60.0;
             if (f_AISLat < (m_ownship.lat + d_side) && 
                 f_AISLat > (m_ownship.lat - d_side) &&
                 f_AISLon < (m_ownship.lon + d_side * 2) && 
@@ -1610,7 +1611,7 @@ void radar_pi::SetPluginMessage(wxString &message_id, wxString &message_body) {
       for (size_t i = 0; i < m_ais_in_arpa_zone.size(); i++) {
         if (m_ais_in_arpa_zone[i].ais_mmsi > 0 && (time(0) - m_ais_in_arpa_zone[i].ais_time_upd > 3 * 60 || !arpa_is_present)) {
           m_ais_in_arpa_zone.erase(m_ais_in_arpa_zone.begin() + i);
-          arpa_max_range = BASE_ARPA_DIST; // Renew AIS search area
+          m_arpa_max_range = BASE_ARPA_DIST; // Renew AIS search area
           JsonAIS = wxEmptyString;  // has debug
         }
       }
@@ -1619,13 +1620,13 @@ void radar_pi::SetPluginMessage(wxString &message_id, wxString &message_body) {
 }
 
 bool radar_pi::FindAIS_at_arpaPos(const GeoPosition &pos, const double &arpa_dist) {
-  arpa_max_range = MAX(arpa_dist + 200, arpa_max_range);  // For AIS search area
+  m_arpa_max_range = MAX(arpa_dist + 200, m_arpa_max_range);  // For AIS search area
   // has debug >>>
   wxString Msg = _T("We've active ARPA targets\n");
   if ((time(0) - AisMsgTim) > 4 || JsonAIS == wxEmptyString) {
-    double max = arpa_max_range > 1852. ? arpa_max_range / 1852.: arpa_max_range;
+    double max = m_arpa_max_range > 1852. ? m_arpa_max_range / 1852.: m_arpa_max_range;
 
-    Msg << _T("Max ARPA Range: ") << max << (arpa_max_range > 1852. ? _T(" Nm") : _T(" m")) << "\n";
+    Msg << _T("Max ARPA Range: ") << max << (m_arpa_max_range > 1852. ? _T(" Nm") : _T(" m")) << "\n";
     Msg << _T("AIS in list: ") << m_ais_in_arpa_zone.size();
     JsonAIS = Msg;
     AisMsgTim = time(0);
