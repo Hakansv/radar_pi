@@ -489,7 +489,6 @@ class radar_pi : public opencpn_plugin_114, public wxEvtHandler {
   double m_arpa_max_range;  //  Temporary distance(m) fron own ship to collect AIS targets.
   wxString JsonAIS;      // Has Debug for Json AIS message
   time_t AisMsgTim = 0;  // has debug
-
   
  private:
   void RadarSendState(void);
