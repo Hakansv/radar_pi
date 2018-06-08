@@ -175,6 +175,7 @@ SOCKET startUDPMulticastReceiveSocket(NetworkAddress &interface_address, Network
   SOCKET rx_socket;
   struct sockaddr_in listenAddress;
   int one = 1;
+  static bool logmes(false);
 
   CLEAR_STRUCT(listenAddress);
 #ifdef __WXMAC__xxx
@@ -208,9 +209,10 @@ SOCKET startUDPMulticastReceiveSocket(NetworkAddress &interface_address, Network
     goto fail;
   }
 
-  wxLogMessage(wxT("radar_pi: multicast reception for %s on interface %s"), FormatNetworkAddressPort(mcast_address),
-               FormatNetworkAddress(interface_address));
 
+  if (!logmes) wxLogMessage(wxT("radar_pi: multicast reception for %s on interface %s"), FormatNetworkAddressPort(mcast_address),
+               FormatNetworkAddress(interface_address));
+  logmes = true;  //Only one OCPN log message per network session
   // Hurrah! Success!
   return rx_socket;
 
@@ -218,6 +220,7 @@ fail:
   if (rx_socket != INVALID_SOCKET) {
     closesocket(rx_socket);
   }
+  logmes = false;
   return INVALID_SOCKET;
 }
 
