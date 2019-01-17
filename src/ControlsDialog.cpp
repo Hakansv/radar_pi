@@ -79,11 +79,13 @@ enum {  // process ID's
   ID_TARGETS_ON_PPI,
   ID_CLEAR_TRAILS,
   ID_ORIENTATION,
+  ID_VIEW_CENTER,
 
   ID_TRANSMIT_STANDBY,
 
   ID_SHOW_RADAR_PPI,
-  ID_RADAR_OVERLAY,
+  ID_RADAR_OVERLAY0,
+  ID_RADAR_OVERLAY1,
   ID_ADJUST,
   ID_ADVANCED,
   ID_GUARDZONE,
@@ -126,12 +128,15 @@ EVT_BUTTON(ID_PREFERENCES, ControlsDialog::OnPreferencesButtonClick)
 
 EVT_BUTTON(ID_POWER, ControlsDialog::OnPowerButtonClick)
 EVT_BUTTON(ID_SHOW_RADAR_PPI, ControlsDialog::OnRadarShowPPIButtonClick)
-EVT_BUTTON(ID_RADAR_OVERLAY, ControlsDialog::OnRadarOverlayButtonClick)
+EVT_BUTTON(ID_RADAR_OVERLAY0, ControlsDialog::OnRadarOverlayButton0Click)
+EVT_BUTTON(ID_RADAR_OVERLAY1, ControlsDialog::OnRadarOverlayButton1Click)
 EVT_BUTTON(ID_GAIN, ControlsDialog::OnRadarGainButtonClick)
 
 EVT_BUTTON(ID_TARGETS_ON_PPI, ControlsDialog::OnTargetsOnPPIButtonClick)
 EVT_BUTTON(ID_CLEAR_TRAILS, ControlsDialog::OnClearTrailsButtonClick)
 EVT_BUTTON(ID_ORIENTATION, ControlsDialog::OnOrientationButtonClick)
+EVT_BUTTON(ID_VIEW_CENTER, ControlsDialog::OnViewCenterButtonClick)
+
 
 EVT_BUTTON(ID_ADJUST, ControlsDialog::OnAdjustButtonClick)
 EVT_BUTTON(ID_ADVANCED, ControlsDialog::OnAdvancedButtonClick)
@@ -245,11 +250,14 @@ wxString RadarControlButton::GetLabel() {
   return label;
 }
 
+void RadarControlButton::SetFirstLine(wxString first_line) {
+     firstLine = first_line;
+}
+
 void RadarControlButton::UpdateLabel(bool force) {
   RadarControlState state;
   int value;
   wxString label;
-
   if (m_item->GetButton(&value, &state) || force) {
     // label << MENU_EDIT(firstLine) << wxT("\n");
     if (m_no_edit) {
@@ -320,7 +328,7 @@ bool RadarRangeControlButton::ToggleState() {
   RadarControlState state = m_item->GetState();
 
   LOG_VERBOSE(wxT("%s Button '%s' toggle Auto %d"), m_parent->m_log_name.c_str(), GetName(), state);
-  if (state >= RCS_AUTO_1 || m_parent->m_ri->m_overlay.GetValue() == 0) {
+  if (state >= RCS_AUTO_1 || (m_parent->m_ri->m_overlay_canvas0.GetValue() == 0 && m_parent->m_ri->m_overlay_canvas1.GetValue() == 0)) {
     state = RCS_MANUAL;
   } else {
     state = RCS_AUTO_1;
@@ -980,9 +988,13 @@ void ControlsDialog::CreateControls() {
   m_show_ppi_button = new RadarButton(this, ID_SHOW_RADAR_PPI, g_buttonSize, _T(""));
   m_window_sizer->Add(m_show_ppi_button, 0, wxALL, BORDER);
 
-  // The RADAR ONLY / OVERLAY button
-  m_overlay_button = new RadarControlButton(this, ID_RADAR_OVERLAY, _("Overlay"), m_ctrl[CT_OVERLAY], &m_ri->m_overlay);
-  m_window_sizer->Add(m_overlay_button, 0, wxALL, BORDER);
+  // The RADAR ONLY / OVERLAY canvas0 button
+  m_overlay_button0 = new RadarControlButton(this, ID_RADAR_OVERLAY0, _("Overlay Left"), m_ctrl[CT_OVERLAY_CANVAS0], &m_ri->m_overlay_canvas0);
+  m_window_sizer->Add(m_overlay_button0, 0, wxALL, BORDER);
+
+  // The RADAR ONLY / OVERLAY canvas1button
+  m_overlay_button1 = new RadarControlButton(this, ID_RADAR_OVERLAY1, _("Overlay Right"), m_ctrl[CT_OVERLAY_CANVAS1], &m_ri->m_overlay_canvas1);
+  m_window_sizer->Add(m_overlay_button1, 0, wxALL, BORDER);
 
   // The TRANSPARENCY button
   m_transparency_button = new RadarControlButton(this, ID_CONTROL_BUTTON, _("Overlay transparency"), m_ctrl[CT_TRANSPARENCY],
@@ -1035,6 +1047,12 @@ void ControlsDialog::CreateControls() {
       new RadarControlButton(this, ID_ORIENTATION, _("Orientation"), m_ctrl[CT_ORIENTATION], &m_ri->m_orientation);
   m_view_sizer->Add(m_orientation_button, 0, wxALL, BORDER);
   // Updated when we receive data
+
+  // The Center Forward Aft button
+  m_view_center_button =
+    new RadarControlButton(this, ID_VIEW_CENTER, _("PPI Forward Aft View"), m_ctrl[CT_CENTER_VIEW], &m_ri->m_view_center);
+  m_view_sizer->Add(m_view_center_button, 0, wxALL, BORDER);
+
 
   // The REFRESHRATE button
   if (m_ctrl[CT_REFRESHRATE].type) {
@@ -1289,7 +1307,7 @@ void ControlsDialog::EnterEditMode(RadarControlButton* button) {
   bool hasAuto = m_from_control->m_ci.autoValues > 0;
 
   if (m_from_control->m_ci.type == CT_RANGE) {  // Range only allows auto if overlay is on
-    hasAuto = m_ri->m_overlay.GetValue() > 0;
+    hasAuto = m_ri->m_overlay_canvas0.GetValue() > 0  || m_ri->m_overlay_canvas1.GetValue() > 0;
   }
 
   if (m_from_control->m_ci.unit.length() > 0) {
@@ -1360,9 +1378,9 @@ void ControlsDialog::OnRadarShowPPIButtonClick(wxCommandEvent& event) {
         }
       }
     }
-    for (size_t r = 0; r < M_SETTINGS.radar_count; r++) {
+    for (size_t r = 0; r < M_SETTINGS.radar_count; r++) { 
       m_pi->m_settings.show_radar[r] = show;
-      if (!show && m_pi->m_settings.chart_overlay != r) {
+      if (!show && m_pi->m_chart_overlay_canvas0 != (int)r && m_pi->m_chart_overlay_canvas1 != (int)r) {
         m_pi->m_settings.show_radar_control[r] = false;
       }
       LOG_DIALOG(wxT("%s OnRadarShowButton: show_radar[%d]=%d"), m_log_name.c_str(), r, show);
@@ -1378,45 +1396,41 @@ void ControlsDialog::OnRadarShowPPIButtonClick(wxCommandEvent& event) {
   m_pi->NotifyRadarWindowViz();
 }
 
-void ControlsDialog::OnRadarOverlayButtonClick(wxCommandEvent& event) {
+void ControlsDialog::OnRadarOverlayButton0Click(wxCommandEvent& event) {
   SetMenuAutoHideTimeout();
 
-  int this_radar = m_ri->m_radar;
-  int next_radar = (this_radar + 1) % M_SETTINGS.radar_count;
-
-  int other_radar = -1;
-  if (M_SETTINGS.radar_count > 1 && !M_SETTINGS.show_radar[this_radar]) {
+  if (m_ri->m_overlay_canvas0.GetValue() == 0) {
+    m_ri->m_overlay_canvas0.Update(1);
+    // flip overlay to on and overlay for all other radars to off
     for (size_t r = 0; r < M_SETTINGS.radar_count; r++) {
-      if (next_radar != this_radar && M_SETTINGS.show_radar[r] == false) {
-        other_radar = next_radar;
-        break;
-      }
-      next_radar = (next_radar + 1) % M_SETTINGS.radar_count;
-    }
-  }
-
-  if (m_pi->m_settings.chart_overlay != this_radar) {
-    m_pi->m_settings.chart_overlay = this_radar;
-  } else if (other_radar > -1) {
-    // If no radar window shown, toggle overlay to different radar with hidden window
-    m_pi->m_settings.chart_overlay = other_radar;
-
-    wxPoint pos = m_pi->m_radar[this_radar]->m_control_dialog->GetPosition();
-
-    // Flip which control is visible.
-    m_pi->ShowRadarControl(this_radar, false);
-
-    if (!m_pi->m_radar[other_radar]->m_control_dialog || !m_pi->m_radar[other_radar]->m_control_dialog->IsShown()) {
-      m_pi->ShowRadarControl(other_radar, true);
-      if (m_pi->m_radar[other_radar]->m_control_dialog) {
-        m_pi->m_radar[other_radar]->m_control_dialog->SetPosition(pos);
+      if (m_pi->m_radar[r] != m_ri) {
+        m_pi->m_radar[r]->m_overlay_canvas0.Update(0);
       }
     }
-  } else {
-    // If a radar window is shown, switch overlay off
-    m_pi->m_settings.chart_overlay = -1;
   }
-  m_ri->m_overlay.Update(m_pi->m_settings.chart_overlay == this_radar);
+  else {
+    // flip overlay to off
+    m_ri->m_overlay_canvas0.Update(0);
+  }
+  UpdateControlValues(true);
+}
+
+void ControlsDialog::OnRadarOverlayButton1Click(wxCommandEvent& event) {
+  SetMenuAutoHideTimeout();
+
+  if (m_ri->m_overlay_canvas1.GetValue() == 0) {
+    m_ri->m_overlay_canvas1.Update(1);
+    // flip overlay to on and overlay for all other radars to off
+    for (size_t r = 0; r < M_SETTINGS.radar_count; r++) {
+      if (m_pi->m_radar[r] != m_ri) {
+        m_pi->m_radar[r]->m_overlay_canvas1.Update(0);
+      }
+    }
+  }
+  else {
+    // flip overlay to off
+    m_ri->m_overlay_canvas1.Update(0);
+  }
   UpdateControlValues(true);
 }
 
@@ -1459,6 +1473,20 @@ void ControlsDialog::OnOrientationButtonClick(wxCommandEvent& event) {
   UpdateControlValues(false);
 }
 
+void ControlsDialog::OnViewCenterButtonClick(wxCommandEvent& event) {
+  int value = m_ri->m_view_center.GetValue() + 1;
+  if (value == CENTER_VIEW) {
+    m_ri->m_off_center.x = 0;
+    m_ri->m_off_center.y = 0;   // reset dragging
+  }
+  if (value > BACKWARD_VIEW) {
+    value = CENTER_VIEW;
+  }
+  m_ri->m_view_center.Update(value);
+  UpdateControlValues(false);
+  value = m_ri->m_view_center.GetValue();
+}
+
 void ControlsDialog::OnBearingSetButtonClick(wxCommandEvent& event) {
   int bearing = event.GetId() - ID_BEARING_SET;
   LOG_DIALOG(wxT("%s OnBearingSetButtonClick for bearing #%d"), m_log_name.c_str(), bearing + 1);
@@ -1472,14 +1500,14 @@ void ControlsDialog::OnClearCursorButtonClick(wxCommandEvent& event) {
 }
 
 void ControlsDialog::OnAcquireTargetButtonClick(wxCommandEvent& event) {
-  Position target_pos;
+  ExtendedPosition target_pos;
   target_pos.pos = m_ri->m_mouse_pos;
   LOG_DIALOG(wxT("%s OnAcquireTargetButtonClick mouse=%f/%f"), m_log_name.c_str(), target_pos.pos.lat, target_pos.pos.lon);
   m_ri->m_arpa->AcquireNewMARPATarget(target_pos);
 }
 
 void ControlsDialog::OnDeleteTargetButtonClick(wxCommandEvent& event) {
-  Position target_pos;
+  ExtendedPosition target_pos;
   target_pos.pos = m_ri->m_mouse_pos;
   LOG_DIALOG(wxT("%s OnDeleteTargetButtonClick mouse=%f/%f"), m_log_name.c_str(), target_pos.pos.lat, target_pos.pos.lon);
   m_ri->m_arpa->DeleteTarget(target_pos);
@@ -1555,6 +1583,10 @@ bool ControlsDialog::UpdateSizersButtonsShown() {
       m_view_sizer->Show(m_orientation_button);
       resize = true;
     }
+    if (m_top_sizer->IsShown(m_view_sizer) && !m_view_sizer->IsShown(m_view_center_button)) {
+      m_view_sizer->Show(m_view_center_button);
+      resize = true;
+    }
   } else {
     // Hide PPI related buttons
     if (m_control_sizer->IsShown(m_transmit_sizer) && m_transmit_sizer->IsShown(m_cursor_menu)) {
@@ -1569,8 +1601,33 @@ bool ControlsDialog::UpdateSizersButtonsShown() {
       m_view_sizer->Hide(m_orientation_button);
       resize = true;
     }
+    if (m_top_sizer->IsShown(m_view_sizer) && m_view_sizer->IsShown(m_view_center_button)) {
+      m_view_sizer->Hide(m_view_center_button);
+      resize = true;
+    }
   }
 
+  if (m_pi->m_max_canvas > 0) {
+    if (m_top_sizer->IsShown(m_window_sizer) && m_window_sizer->IsShown(m_overlay_button1)) {
+      m_window_sizer->Show(m_overlay_button1);
+    }
+    if (m_top_sizer->IsShown(m_window_sizer) && m_window_sizer->IsShown(m_overlay_button0)) {
+      m_overlay_button0->SetFirstLine(wxT("Overlay Left"));
+      m_overlay_button0->UpdateLabel(true);
+    }
+  }
+  else {
+    if (m_top_sizer->IsShown(m_window_sizer) && m_window_sizer->IsShown(m_overlay_button1)) {
+      m_window_sizer->Hide(m_overlay_button1);
+    }
+    if (m_top_sizer->IsShown(m_window_sizer) && m_window_sizer->IsShown(m_overlay_button0)) {
+      m_overlay_button0->SetFirstLine(wxT("Radar Overlay"));
+      m_overlay_button0->UpdateLabel(true);
+    }
+  }
+  
+
+  
   if (m_pi->GetHeadingSource() == HEADING_NONE) {
     m_orientation_button->Disable();
   } else {
@@ -1599,8 +1656,10 @@ bool ControlsDialog::UpdateSizersButtonsShown() {
   }
 
   if (m_top_sizer->IsShown(m_window_sizer)) {
-    int overlay = m_ri->m_overlay.GetValue();
-
+    int overlay = m_ri->m_overlay_canvas0.GetValue();
+    if (overlay <= 0) {
+         overlay = m_ri->m_overlay_canvas1.GetValue();
+    }
     if (overlay > 0) {
       m_transparency_button->Enable();
     } else {
@@ -1751,15 +1810,15 @@ void ControlsDialog::UpdateControlValues(bool refreshAll) {
   bool updateEditDialog = false;
   bool resize = false;
 
-  if (m_ri->m_state.IsModified() || m_ri->m_overlay.IsModified()) {
+  if (m_ri->m_state.IsModified() || m_ri->m_overlay_canvas0.IsModified() || m_ri->m_overlay_canvas1.IsModified()) {
     refreshAll = true;
     resize = true;
   }
 
   if (m_from_control && m_top_sizer->IsShown(m_edit_sizer)) {
-    updateEditDialog = refreshAll || m_from_control->m_item->IsModified();
+       updateEditDialog = refreshAll || m_from_control->m_item->IsModified();
   }
-
+ 
   RadarState state = (RadarState)m_ri->m_state.GetButton();
 
   o << _("Start/Stop radar") << wxT("\n");
@@ -1817,7 +1876,9 @@ void ControlsDialog::UpdateControlValues(bool refreshAll) {
   m_target_trails_button->UpdateLabel();
   m_trails_motion_button->UpdateLabel();
   m_orientation_button->UpdateLabel();
-  m_overlay_button->UpdateLabel();
+  m_view_center_button->UpdateLabel();
+  m_overlay_button0->UpdateLabel();
+  m_overlay_button1->UpdateLabel();
 
   if (m_range_button && (m_ri->m_range.IsModified() || refreshAll)) {
     m_ri->m_range.GetButton();

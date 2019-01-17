@@ -33,7 +33,7 @@
 #define _RADARPI_H_
 
 #define MY_API_VERSION_MAJOR 1
-#define MY_API_VERSION_MINOR 14  // Needed for PluginAISDrawGL().
+#define MY_API_VERSION_MINOR 16  // Needed for PluginAISDrawGL().
 
 #include <algorithm>
 #include <vector>
@@ -72,6 +72,7 @@ class RadarControl;
 class radar_pi;
 class GuardZoneBogey;
 class RadarArpa;
+class GPSKalmanFilter;
 
 #define RADARS (4)         // Arbitrary limit, anyone running this many is already crazy!
 #define GUARD_ZONES (2)    // Could be increased if wanted
@@ -123,7 +124,7 @@ typedef int AngleDegrees;  // An angle relative to North or HeadUp. Generally [0
 #define LOGLEVEL_RECEIVE 8
 #define LOGLEVEL_GUARD 16
 #define LOGLEVEL_ARPA 32
-#define IF_LOG_AT_LEVEL(x) if ((M_SETTINGS.verbose & x) != 0)
+#define IF_LOG_AT_LEVEL(x) if ((M_SETTINGS.verbose & (x)) != 0)
 #define IF_LOG_AT(x, y)       \
   do {                        \
     IF_LOG_AT_LEVEL(x) { y; } \
@@ -296,22 +297,21 @@ static const int RangeUnitsToMeters[3] = {1852, 1000, 1852};
  * some of it is 'secret' and can only be set by manipulating the ini file directly.
  */
 struct PersistentSettings {
-  size_t radar_count;                     // How many radars we have
-  RadarControlItem overlay_transparency;  // How transparent is the radar picture over the chart
-  int range_index;                        // index into range array, see RadarInfo.cpp
-  int verbose;                            // Loglevel 0..4.
-  int guard_zone_threshold;               // How many blobs must be sent by radar before we fire alarm
-  int guard_zone_render_style;            // 0 = Shading, 1 = Outline, 2 = Shading + Outline
-  int guard_zone_timeout;                 // How long before we warn again when bogeys are found
-  bool guard_zone_on_overlay;
-  bool trails_on_overlay;
-  bool overlay_on_standby;
+  size_t radar_count;                              // How many radars we have
+  RadarControlItem overlay_transparency;           // How transparent is the radar picture over the chart
+  int range_index;                                 // index into range array, see RadarInfo.cpp
+  int verbose;                                     // Loglevel 0..4.
+  int guard_zone_threshold;                        // How many blobs must be sent by radar before we fire alarm
+  int guard_zone_render_style;                     // 0 = Shading, 1 = Outline, 2 = Shading + Outline
+  int guard_zone_timeout;                          // How long before we warn again when bogeys are found
+  bool guard_zone_on_overlay;                      // Show the guard zone on chart overlay?
+  bool trails_on_overlay;                          // Show radar trails on chart overlay?
+  bool overlay_on_standby;                         // Show guard zone when radar is in standby?
   int guard_zone_debug_inc;                        // Value to add on every cycle to guard zone bearings, for testing.
   double skew_factor;                              // Set to -1 or other value to correct skewing
   RangeUnits range_units;                          // See enum
   int max_age;                                     // Scans older than this in seconds will be removed
   RadarControlItem refreshrate;                    // How quickly to refresh the display
-  int chart_overlay;                               // -1 = none, otherwise = radar number
   int menu_auto_hide;                              // 0 = none, 1 = 10s, 2 = 30s
   int drawing_method;                              // VertexBuffer, Shader, etc.
   bool developer_mode;                             // Readonly from config, allows head up mode
@@ -367,11 +367,11 @@ struct AisArpa {
    INSTALLS_TOOLBAR_TOOL | USES_AUI_MANAGER | WANTS_CONFIG | WANTS_NMEA_EVENTS | WANTS_NMEA_SENTENCES | WANTS_PREFERENCES |  \
    WANTS_PLUGIN_MESSAGING | WANTS_CURSOR_LATLON | WANTS_MOUSE_EVENTS)
 
-class radar_pi : public opencpn_plugin_114, public wxEvtHandler {
+class radar_pi : public opencpn_plugin_116, public wxEvtHandler {
  public:
   radar_pi(void *ppimgr);
   ~radar_pi();
-  void PrepareRadarImage(int angle);
+  //void PrepareRadarImage(int angle); remove?
 
   //    The required PlugIn Methods
   int Init(void);
@@ -388,7 +388,7 @@ class radar_pi : public opencpn_plugin_114, public wxEvtHandler {
   wxString GetLongDescription();
 
   //    The required override PlugIn Methods
-  bool RenderGLOverlay(wxGLContext *pcontext, PlugIn_ViewPort *vp);
+  bool RenderGLOverlayMultiCanvas(wxGLContext *pcontext, PlugIn_ViewPort *vp, int max_canvas);
   bool RenderOverlay(wxDC &dc, PlugIn_ViewPort *vp);
   void SetPositionFix(PlugIn_Position_Fix &pfix);
   void SetPositionFixEx(PlugIn_Position_Fix_Ex &pfix);
@@ -402,8 +402,12 @@ class radar_pi : public opencpn_plugin_114, public wxEvtHandler {
   void SetCursorPosition(GeoPosition pos);
   void SetCursorLatLon(double lat, double lon);
   bool MouseEventHook(wxMouseEvent &event);
+
   bool m_guard_bogey_confirmed;
   bool m_guard_bogey_seen;  // Saw guardzone bogeys on last check
+  int m_max_canvas;         // Number of canvasses in OCPN -1, 0 == single canvas, > 0  multi 
+  PlugIn_ViewPort* m_vp;
+  
 
   // Other public methods
 
@@ -424,7 +428,7 @@ class radar_pi : public opencpn_plugin_114, public wxEvtHandler {
 
   void UpdateAllControlStates(bool all);
 
-  bool IsRadarOnScreen(int radar) { return m_settings.show && (m_settings.show_radar[radar] || m_settings.chart_overlay == radar); }
+  bool IsRadarOnScreen(int radar);
 
   bool LoadConfig();
   bool SaveConfig();
@@ -520,7 +524,14 @@ class radar_pi : public opencpn_plugin_114, public wxEvtHandler {
   double m_radar_heading;          // Last heading obtained from radar, or nan if none
   bool m_radar_heading_true;       // Was TRUE flag set on radar heading?
   time_t m_radar_heading_timeout;  // When last heading was obtained from radar, or 0 if not
+  public:
   HeadingSource m_heading_source;
+  wxWindow* m_canvas0;
+  wxWindow* m_canvas1;
+  int m_chart_overlay_canvas0;                       // The overlay for canvas0, -1 = none, otherwise = radar number
+  int m_chart_overlay_canvas1;                       // The overlay for canvas1, -1 = none, otherwise = radar number
+  
+  private:
   bool m_bpos_set;
   time_t m_bpos_timestamp;
 
@@ -585,7 +596,12 @@ class radar_pi : public opencpn_plugin_114, public wxEvtHandler {
   // Cursor position. Used to show position in radar window
   GeoPosition m_cursor_pos;
   GeoPosition m_ownship;
-
+public:
+  GPSKalmanFilter* m_GPS_filter;
+  bool m_predicted_position_initialised = false;
+  ExtendedPosition m_expected_position;  // updated own position at time of last GPS update
+  ExtendedPosition m_last_fixed;         // best estimate position at last measurement
+  private:
   bool m_initialized;      // True if Init() succeeded and DeInit() not called yet.
   bool m_first_init;       // True in first Init() call.
   wxLongLong m_boot_time;  // millis when started

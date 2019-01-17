@@ -150,7 +150,8 @@ class ControlsDialog : public wxDialog {
     m_side_lobe_suppression_button = 0;
     m_main_bang_size_button = 0;
     m_show_ppi_button = 0;
-    m_overlay_button = 0;
+    m_overlay_button0 = 0;
+    m_overlay_button1 = 0;
     m_range_button = 0;
     m_transparency_button = 0;  // TODO: Set it on change
     m_refresh_rate_button = 0;  // TODO: Set it on change
@@ -161,7 +162,7 @@ class ControlsDialog : public wxDialog {
     m_adjust_button = 0;
     m_cursor_menu = 0;
 
-    for (int i = 0; i < ARRAY_SIZE(m_ctrl); i++) {
+    for (size_t i = 0; i < ARRAY_SIZE(m_ctrl); i++) {
       m_ctrl[i].type = CT_NONE;
       m_ctrl[i].names = 0;
       m_ctrl[i].autoNames = 0;
@@ -299,6 +300,7 @@ class ControlsDialog : public wxDialog {
   RadarControlButton *m_trails_motion_button;
   wxButton *m_clear_trails_button;
   RadarControlButton *m_orientation_button;
+  RadarControlButton *m_view_center_button;
 
   // Power controls
   wxButton *m_power_sub_button;
@@ -328,7 +330,8 @@ class ControlsDialog : public wxDialog {
 
   // Window controls
   RadarButton *m_show_ppi_button;
-  RadarControlButton *m_overlay_button;
+  RadarControlButton *m_overlay_button0;
+  RadarControlButton *m_overlay_button1;
   RadarControlButton *m_transparency_button;
 
   // Adjust controls
@@ -385,12 +388,14 @@ class ControlsDialog : public wxDialog {
 
   void OnPowerButtonClick(wxCommandEvent &event);
   void OnRadarShowPPIButtonClick(wxCommandEvent &event);
-  void OnRadarOverlayButtonClick(wxCommandEvent &event);
+  void OnRadarOverlayButton0Click(wxCommandEvent &event);
+  void OnRadarOverlayButton1Click(wxCommandEvent &event);
   void OnMessageButtonClick(wxCommandEvent &event);
 
   void OnTargetsOnPPIButtonClick(wxCommandEvent &event);
   void OnClearTrailsButtonClick(wxCommandEvent &event);
   void OnOrientationButtonClick(wxCommandEvent &event);
+  void OnViewCenterButtonClick(wxCommandEvent &event);
 
   void OnRadarControlButtonClick(wxCommandEvent &event);
 
@@ -508,6 +513,7 @@ class RadarControlButton : public wxButton {
   virtual bool ToggleState();  // Returns desired new state for Auto/Off button show.
   virtual void SetState(RadarControlState state);
   virtual void UpdateLabel(bool force = false);
+  virtual void SetFirstLine(wxString first_line);
   wxString GetLabel();
 
   wxString m_comment;

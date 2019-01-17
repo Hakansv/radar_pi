@@ -37,6 +37,9 @@
 
 PLUGIN_BEGIN_NAMESPACE
 
+const double ZOOM_FACTOR_CENTER = .9;  // On how big a part of the PPI do we draw the radar picture
+const double ZOOM_FACTOR_OFFSET = 1.05;  // On how big a part of the PPI do we draw the radar picture
+
 class RadarCanvas : public wxGLCanvas {
  public:
   RadarCanvas(radar_pi* pi, RadarInfo* ri, wxWindow* parent, wxSize size);
@@ -45,7 +48,9 @@ class RadarCanvas : public wxGLCanvas {
   void Render(wxPaintEvent& evt);
   void OnMove(wxMoveEvent& evt);
   void OnSize(wxSizeEvent& evt);
-  void OnMouseClick(wxMouseEvent& event);
+  void OnMouseClickDown(wxMouseEvent& event);
+  void OnMouseClickUp(wxMouseEvent& event);
+  void OnMouseMotion(wxMouseEvent& event);
   void OnMouseWheel(wxMouseEvent& event);
 
  private:
@@ -69,11 +74,13 @@ class RadarCanvas : public wxGLCanvas {
   TextureFont m_FontMenuBold;
   wxSize m_menu_size;
   wxSize m_zoom_size;
-
+  wxPoint m_mouse_down;
   unsigned int m_cursor_texture;
-
+ 
   wxLongLong m_last_mousewheel_zoom_in;
   wxLongLong m_last_mousewheel_zoom_out;
+  
+  
 
   DECLARE_EVENT_TABLE();
 };

@@ -29,13 +29,13 @@
  ***************************************************************************
  */
 
+#include "RadarInfo.h"
 #include "ControlsDialog.h"
 #include "GuardZone.h"
 #include "MessageBox.h"
 #include "RadarCanvas.h"
 #include "RadarDraw.h"
 #include "RadarFactory.h"
-#include "RadarInfo.h"
 #include "RadarMarpa.h"
 #include "RadarPanel.h"
 #include "RadarReceive.h"
@@ -102,6 +102,13 @@ RadarInfo::RadarInfo(radar_pi *pi, int radar) {
   m_control_dialog = 0;
   m_state.Update(RADAR_OFF);
   m_refresh_millis = 50;
+
+  m_drag.x = 0.;
+  m_drag.y = 0.;
+  m_off_center.x = 0.;
+  m_off_center.y = 0.;
+  m_panel_zoom = 0.;
+  m_view_center = 1;
 
   for (size_t z = 0; z < GUARD_ZONES; z++) {
     m_guard_zone[z] = new GuardZone(m_pi, this, z);
@@ -274,7 +281,7 @@ void RadarInfo::ShowControlDialog(bool show, bool reparent) {
       LOG_VERBOSE(wxT("radar_pi %s: Creating control dialog"), m_name.c_str());
       m_control_dialog->Create(parent, m_pi, this, wxID_ANY, m_name, m_pi->m_settings.control_pos[m_radar]);
     }
-    m_control_dialog->ShowDialog();
+    if (m_control_dialog) m_control_dialog->ShowDialog();
   } else if (m_control_dialog) {
     m_control_dialog->HideDialog();
   }
@@ -339,7 +346,8 @@ void RadarInfo::ComputeColourMap() {
 
 void RadarInfo::ResetSpokes() {
   uint8_t zap[SPOKE_LEN_MAX];
-
+GeoPosition pos;
+GetRadarPosition (&pos);
   LOG_VERBOSE(wxT("radar_pi: reset spokes"));
 
   CLEAR_STRUCT(zap);
@@ -352,12 +360,12 @@ void RadarInfo::ResetSpokes() {
 
   if (m_draw_panel.draw) {
     for (size_t r = 0; r < m_spokes; r++) {
-      m_draw_panel.draw->ProcessRadarSpoke(0, r, zap, m_spoke_len_max);
+      m_draw_panel.draw->ProcessRadarSpoke(0, r, zap, m_spoke_len_max, pos);
     }
   }
   if (m_draw_overlay.draw) {
     for (size_t r = 0; r < m_spokes; r++) {
-      m_draw_overlay.draw->ProcessRadarSpoke(0, r, zap, m_spoke_len_max);
+      m_draw_overlay.draw->ProcessRadarSpoke(0, r, zap, m_spoke_len_max, pos);
     }
   }
 
@@ -385,9 +393,23 @@ void RadarInfo::ProcessRadarSpoke(SpokeBearing angle, SpokeBearing bearing, uint
   // calculate course as the moving average of m_hdt over one revolution
   SampleCourse(angle);  // used for course_up mode
 
-  for (int i = 0; i < m_main_bang_size.GetValue(); i++) {
-    data[i] = 0;
-  }
+  //for (int i = 0; i < m_main_bang_size.GetValue(); i++) {
+  //  data[i] = 0;
+  //  if (i < 7) data[i] = 200;   // put a dot in the middle for testing
+  //}
+
+
+//  for (int i = 0; i < 1024; i++) {
+//    data[i] = 15;
+//  
+//
+//if (angle > 512 && angle < 530 && i > 512 && i < 530) data[i] = 200;
+//
+//
+//
+//
+//  }   // set picture to 0 except one dot for testing
+
 
   // Recompute 'pixels_per_meter' based on the actual spoke length and range in meters.
   double pixels_per_meter = len / (double)range_meters;
@@ -445,7 +467,7 @@ void RadarInfo::ProcessRadarSpoke(SpokeBearing angle, SpokeBearing bearing, uint
 
   bool draw_trails_on_overlay = M_SETTINGS.trails_on_overlay;
   if (m_draw_overlay.draw && !draw_trails_on_overlay) {
-    m_draw_overlay.draw->ProcessRadarSpoke(M_SETTINGS.overlay_transparency.GetValue(), bearing, data, len);
+    m_draw_overlay.draw->ProcessRadarSpoke(M_SETTINGS.overlay_transparency.GetValue(), bearing, data, len, m_history[bearing].pos);
   }
 
   m_trails->UpdateTrailPosition();
@@ -457,11 +479,11 @@ void RadarInfo::ProcessRadarSpoke(SpokeBearing angle, SpokeBearing bearing, uint
   m_trails->UpdateRelativeTrails(angle, data, trail_len);
 
   if (m_draw_overlay.draw && draw_trails_on_overlay) {
-    m_draw_overlay.draw->ProcessRadarSpoke(M_SETTINGS.overlay_transparency.GetValue(), bearing, data, len);
+    m_draw_overlay.draw->ProcessRadarSpoke(M_SETTINGS.overlay_transparency.GetValue(), bearing, data, len, m_history[bearing].pos);
   }
 
   if (m_draw_panel.draw) {
-    m_draw_panel.draw->ProcessRadarSpoke(4, stabilized_mode ? bearing : angle, data, len);
+    m_draw_panel.draw->ProcessRadarSpoke(4, stabilized_mode ? bearing : angle, data, len, m_history[bearing].pos);
   }
 }
 
@@ -534,16 +556,19 @@ void RadarInfo::UpdateTransmitState() {
 
 void RadarInfo::RequestRadarState(RadarState state) {
   int oldState = m_state.GetValue();
-
-  if (m_pi->IsRadarOnScreen(m_radar) && oldState != RADAR_OFF) {                         // if radar is visible and detected
+  if (/*m_pi->IsRadarOnScreen(m_radar) &&*/ oldState != RADAR_OFF) {                         // if radar is visible and detected
     if (oldState != state && !(oldState != RADAR_STANDBY && state == RADAR_TRANSMIT)) {  // and change is wanted
       time_t now = time(0);
+
 
       if (state == RADAR_TRANSMIT) {
         m_control->RadarTxOn();
         // Refresh radar immediately so that we generate draw mechanisms
-        if (m_pi->m_settings.chart_overlay == m_radar) {
-          GetOCPNCanvasWindow()->Refresh(false);
+        if (m_pi->m_chart_overlay_canvas0 == (int)m_radar) {
+          m_pi->m_canvas0->Refresh(false);
+        }
+        if (m_pi->m_chart_overlay_canvas1 == (int)m_radar) {
+          m_pi->m_canvas1->Refresh(false);
         }
         if (m_radar_panel) {
           m_radar_panel->Refresh();
@@ -671,8 +696,16 @@ bool RadarInfo::SetControlValue(ControlType controlType, RadarControlItem &item)
       m_orientation = item;
     }
 
-    case CT_OVERLAY: {
-      m_overlay = item;
+    case CT_CENTER_VIEW: {
+      m_view_center = item;
+    }
+
+    case CT_OVERLAY_CANVAS0: {
+      m_overlay_canvas0 = item;
+    }
+
+    case CT_OVERLAY_CANVAS1: {
+         m_overlay_canvas1 = item;
     }
 
     // Careful, we're selectively falling through to the next case label
@@ -718,13 +751,12 @@ bool RadarInfo::IsPaneShown() { return m_radar_panel->IsPaneShown(); }
 void RadarInfo::UpdateControlState(bool all) {
   wxCriticalSectionLocker lock(m_exclusive);
 
-  m_overlay.Update(m_pi->m_settings.chart_overlay == m_radar);
 
 #ifdef OPENCPN_NO_LONGER_MIXES_GL_CONTEXT
   //
   // Once OpenCPN doesn't mess up with OpenGL context anymore we can do this
   //
-  if (m_overlay.value == 0 && m_draw_overlay.draw) {
+  if (m_overlay_canvas0.value == 0 && m_overlay_canvas1.value == 0 && m_draw_overlay.draw) {
     LOG_DIALOG(wxT("radar_pi: Removing draw method as radar overlay is not shown"));
     delete m_draw_overlay.draw;
     m_draw_overlay.draw = 0;
@@ -765,7 +797,7 @@ void RadarInfo::RefreshDisplay() {
   }
 }
 
-void RadarInfo::RenderRadarImage(DrawInfo *di) {
+void RadarInfo::RenderRadarImage2(DrawInfo *di, double radar_scale, double panel_rotate) {
   wxCriticalSectionLocker lock(m_exclusive);
   int drawing_method = m_pi->m_settings.drawing_method;
   int state = m_state.GetValue();
@@ -801,8 +833,15 @@ void RadarInfo::RenderRadarImage(DrawInfo *di) {
       return;
     }
   }
+  
+  if (di == &m_draw_overlay) {
+    di->draw->DrawRadarOverlayImage(radar_scale, panel_rotate);
+  }
+  else {
+    double panel_scale = (m_panel_zoom / m_range.GetValue()) / m_pixels_per_meter;  // typical value 0.001
+    di->draw->DrawRadarPanelImage(panel_scale, panel_rotate);
+  }
 
-  di->draw->DrawRadarImage();
   if (g_first_render) {
     g_first_render = false;
     wxLongLong startup_elapsed = wxGetUTCTimeMillis() - m_pi->GetBootMillis();
@@ -823,7 +862,7 @@ int RadarInfo::GetOrientation() {
   return orientation;
 }
 
-void RadarInfo::RenderRadarImage(wxPoint center, double scale, double overlay_rotate, bool overlay) {
+void RadarInfo::RenderRadarImage1(wxPoint center, double scale, double overlay_rotate, bool overlay) {
   bool arpa_on = false;
   if (m_arpa) {
     for (int i = 0; i < GUARD_ZONES; i++) {
@@ -853,25 +892,32 @@ void RadarInfo::RenderRadarImage(wxPoint center, double scale, double overlay_ro
   if (!overlay) {
     arpa_rotate = 0.;
     switch (orientation) {
-      case ORIENTATION_STABILIZED_UP:
-        panel_rotate -= m_course;  // Panel only needs stabilized heading applied
-        arpa_rotate -= m_course;
-        guard_rotate += m_pi->GetHeadingTrue() - m_course;
-        break;
-      case ORIENTATION_COG_UP: {
-        double cog = m_pi->GetCOG();
-        panel_rotate -= cog;  // Panel only needs stabilized heading applied
-        arpa_rotate -= cog;
-        guard_rotate += m_pi->GetHeadingTrue() - cog;
-      } break;
-      case ORIENTATION_NORTH_UP:
-        guard_rotate += m_pi->GetHeadingTrue();
-        break;
-      case ORIENTATION_HEAD_UP:
-        arpa_rotate += -m_pi->GetHeadingTrue();  // Undo the actual heading calculation always done for ARPA
-        break;
+    case ORIENTATION_STABILIZED_UP:
+      panel_rotate -= m_course;  // Panel only needs stabilized heading applied
+      arpa_rotate -= m_course;
+      guard_rotate += m_pi->GetHeadingTrue() - m_course;
+      break;
+    case ORIENTATION_COG_UP: {
+      double cog = m_pi->GetCOG();
+      panel_rotate -= cog;  // Panel only needs stabilized heading applied
+      arpa_rotate -= cog;
+      guard_rotate += m_pi->GetHeadingTrue() - cog;
+    } break;
+    case ORIENTATION_NORTH_UP:
+      guard_rotate += m_pi->GetHeadingTrue();
+      break;
+    case ORIENTATION_HEAD_UP:
+      arpa_rotate += -m_pi->GetHeadingTrue();  // Undo the actual heading calculation always done for ARPA
+      break;
     }
-  } else {
+
+    glPushMatrix();
+    double x,y;
+    x = (double)(m_off_center.x + m_drag.x) * m_panel_zoom / m_radar_radius;
+    y = (double)(m_off_center.y + m_drag.y) * m_panel_zoom / m_radar_radius;
+    glTranslated(x, y, 0.);
+  }
+  else {
     guard_rotate += m_pi->GetHeadingTrue();
     arpa_rotate = overlay_rotate - OPENGL_ROTATION;
   }
@@ -881,7 +927,6 @@ void RadarInfo::RenderRadarImage(wxPoint center, double scale, double overlay_ro
   }
 
   wxStopWatch stopwatch;
-
   // Render the guard zone
   if (!overlay || (M_SETTINGS.guard_zone_on_overlay && (M_SETTINGS.overlay_on_standby || m_state.GetValue() == RADAR_TRANSMIT))) {
     glPushMatrix();
@@ -894,47 +939,45 @@ void RadarInfo::RenderRadarImage(wxPoint center, double scale, double overlay_ro
 
   if (m_pixels_per_meter != 0.) {
     double radar_scale = scale / m_pixels_per_meter;
-    glPushMatrix();
-    glTranslated(center.x, center.y, 0);
-    glRotated(panel_rotate, 0.0, 0.0, 1.0);
-    glScaled(radar_scale, radar_scale, 1.);
-
-    RenderRadarImage(overlay ? &m_draw_overlay : &m_draw_panel);
-    glPopMatrix();
+    if (m_pi->m_settings.drawing_method) {  // for shader
+      glPushMatrix();
+      glTranslated(center.x, center.y, 0);
+      glRotated(panel_rotate, 0.0, 0.0, 1.0);
+      glScaled(radar_scale, radar_scale, 1.);
+    }
+    RenderRadarImage2(overlay ? &m_draw_overlay : &m_draw_panel, radar_scale, panel_rotate);
+    if (m_pi->m_settings.drawing_method) {
+      glPopMatrix();
+    }
   }
 
   if (arpa_on) {
-    glPushMatrix();
-    glTranslated(center.x, center.y, 0);
-    LOG_VERBOSE(wxT("radar_pi: %s render ARPA targets on overlay with rot=%f"), m_name.c_str(), arpa_rotate);
-
-    glRotated(arpa_rotate, 0.0, 0.0, 1.0);
-    glScaled(scale, scale, 1.);
-    m_arpa->DrawArpaTargets();
+    if (overlay) {
+      m_arpa->DrawArpaTargetsOverlay(scale, arpa_rotate);
+    }
+    else {
+      m_arpa->DrawArpaTargetsPanel(scale, arpa_rotate);
+    }
+  }
+  m_draw_time_ms = stopwatch.Time();
+  glPopAttrib();
+  if (!overlay) {
     glPopMatrix();
   }
-
-  if (!overlay) {
-    glFinish();
-  }
-
-  m_draw_time_ms = stopwatch.Time();
-
-  glPopAttrib();
 }
 
 wxString RadarInfo::GetCanvasTextTopLeft() {
   wxString s;
-
+  
   switch (GetOrientation()) {
     case ORIENTATION_HEAD_UP:
-      s << _("Head Up");
+      s << _("Head Up") << wxT("\n") << _("Relative Bearings");
       break;
     case ORIENTATION_STABILIZED_UP:
       s << _("Head Up") << wxT("\n") << _("Stabilized");
       break;
     case ORIENTATION_COG_UP:
-      s << _("Course Up");
+      s << _("COG Up");
       break;
     case ORIENTATION_NORTH_UP:
       s << _("North Up");
@@ -1100,7 +1143,7 @@ wxString RadarInfo::GetCanvasTextCenter() {
 wxString RadarInfo::GetRangeText() {
   int meters = m_range.GetValue();
 
-  bool auto_range = m_range.GetState() == RCS_AUTO_1 && m_overlay.GetValue() > 0;
+  bool auto_range = int((m_range.GetState()) > 0) == RCS_AUTO_1 && (int((m_overlay_canvas0.GetValue()) > 0 || m_overlay_canvas1.GetValue()) > 0);
 
   m_range_text = wxT("");
   if (auto_range) {
@@ -1236,7 +1279,6 @@ void RadarInfo::SetMouseVrmEbl(double vrm, double ebl) {
       bearing = ebl + m_pi->GetHeadingTrue();
       break;
   }
-
   static double R = 6378.1e3 / 1852.;  // Radius of the Earth in nm
   double brng = deg2rad(bearing);
   double d = vrm;  // Distance in nm
@@ -1499,6 +1541,30 @@ void RadarInfo::CheckTimedTransmit() {
   }
   time_to_go = wxMax(time_to_go, 0);
   m_next_state_change.Update(time_to_go);
+}
+
+bool RadarInfo::GetRadarPosition(GeoPosition *pos) {
+  wxCriticalSectionLocker lock(m_exclusive);
+
+  if (m_pi->IsBoatPositionValid() && VALID_GEO(m_radar_position.lat) && VALID_GEO(m_radar_position.lon)) {
+    *pos = m_radar_position;
+    return true;
+  }
+  pos->lat = nan("");
+  pos->lon = nan("");
+  return false;
+}
+
+bool RadarInfo::GetRadarPosition(ExtendedPosition *radar_pos) {
+  wxCriticalSectionLocker lock(m_exclusive);
+
+  if (m_pi->IsBoatPositionValid() && VALID_GEO(m_radar_position.lat) && VALID_GEO(m_radar_position.lon)) {
+    radar_pos->pos = m_radar_position;
+    return true;
+  }
+  radar_pos->pos.lat = nan("");
+  radar_pos->pos.lon = nan("");
+  return false;
 }
 
 PLUGIN_END_NAMESPACE
